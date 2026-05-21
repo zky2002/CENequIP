@@ -15,6 +15,7 @@ from nequip.nn import (
 )
 from nequip.nn.embedding import (
     NodeTypeEmbed,
+    AtomTransformerEmbed,
     PolynomialCutoff,
     EdgeLengthNormalizer,
     BesselEdgeLengthEncoding,
@@ -222,6 +223,8 @@ def FullNequIPGNNModel(
     irreps_edge_sh: Union[int, str, o3.Irreps],
     type_embed_num_features: int,
     categorical_graph_field_embed: Optional[List[Dict[str, int]]] = None,
+    atom_transformer_embed: bool = False,
+    atom_transformer_kwargs: Optional[Dict] = None,
     # readout
     readout_mlp_hidden_layers_depth: int = 0,
     readout_mlp_hidden_layers_width: Optional[int] = None,
@@ -289,11 +292,22 @@ def FullNequIPGNNModel(
     # == node scalar embedding ==
     # NOTE: node embed is done first in case we need to pass in categorical graph fields as inputs
     # see how `irreps_in` is registered in the `NodeTypeEmbed` class
-    type_embed = NodeTypeEmbed(
-        type_names=type_names,
-        num_features=type_embed_num_features,
-        categorical_graph_field_embed=categorical_graph_field_embed,
-    )
+    if atom_transformer_embed:
+        assert categorical_graph_field_embed is None, (
+            "`categorical_graph_field_embed` is not supported when "
+            "`atom_transformer_embed=True`"
+        )
+        type_embed = AtomTransformerEmbed(
+            type_names=list(type_names),
+            num_features=type_embed_num_features,
+            **({} if atom_transformer_kwargs is None else atom_transformer_kwargs),
+        )
+    else:
+        type_embed = NodeTypeEmbed(
+            type_names=type_names,
+            num_features=type_embed_num_features,
+            categorical_graph_field_embed=categorical_graph_field_embed,
+        )
 
     # == edge tensor embedding ==
     spharm = SphericalHarmonicEdgeAttrs(
