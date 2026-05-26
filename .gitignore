@@ -10,7 +10,8 @@ cov*.xml
 *.icloud
 benchmark_data/
 *.ipynb_checkpoints/
-.DS_store/
+.DS_Store
+data/
 .python-version
 
 # test data
