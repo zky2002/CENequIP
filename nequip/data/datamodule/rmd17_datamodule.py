@@ -5,6 +5,7 @@ from nequip.utils.logger import RankedLogger
 from nequip.data import AtomicDataDict
 
 import os
+import numpy as np
 from typing import Union, Sequence, Optional, List, Callable
 
 logger = RankedLogger(__name__, rank_zero_only=True)
@@ -126,3 +127,106 @@ class rMD17DataModule(NequIPDataModule):
 
         else:
             logger.info(f"Using existing data files `{self.file_path}`")
+
+
+class rMD17AllDataModule(NequIPDataModule):
+    """DataModule for training one model on multiple rMD17 molecules.
+
+    This keeps the same per-molecule split semantics as :class:`rMD17DataModule`,
+    then concatenates the requested molecules into a single train, validation,
+    and test dataset. It is useful for a "one model over all rMD17 molecules"
+    experiment.
+    """
+
+    def __init__(
+        self,
+        datasets: Sequence[str],
+        data_source_dir: str,
+        transforms: List[Callable],
+        seed: int,
+        train_val_test_split: Sequence[Union[int, float, None]],
+        **kwargs,
+    ):
+        assert len(datasets) > 0, "`datasets` must contain at least one molecule"
+        assert all(dataset in rMD17DataModule.DATASET_MAP for dataset in datasets), (
+            f"`datasets` entries must be any of {list(rMD17DataModule.DATASET_MAP.keys())}"
+        )
+        assert len(train_val_test_split) == 3
+
+        self.datasets = list(datasets)
+        self.data_source_dir = data_source_dir
+        self.file_paths = [
+            "/".join(
+                [
+                    data_source_dir,
+                    "rmd17/npz_data",
+                    rMD17DataModule.DATASET_MAP[dataset],
+                ]
+            )
+            for dataset in self.datasets
+        ]
+
+        split_datasets = {"train": [], "val": [], "test": []}
+        for file_path in self.file_paths:
+            dataset_config = {
+                "_target_": "nequip.data.dataset.NPZDataset",
+                "file_path": file_path,
+                "transforms": list(transforms) + [_kcalmol_to_ev],
+                "key_mapping": {
+                    "coords": AtomicDataDict.POSITIONS_KEY,
+                    "nuclear_charges": AtomicDataDict.ATOMIC_NUMBERS_KEY,
+                    "energies": AtomicDataDict.TOTAL_ENERGY_KEY,
+                    "forces": AtomicDataDict.FORCE_KEY,
+                },
+            }
+            split_dict = self._resolve_split(file_path, train_val_test_split)
+            for split_name in split_datasets:
+                split_datasets[split_name].append(
+                    {
+                        "_target_": "nequip.data.dataset.RandomSplitAndIndexDataset",
+                        "dataset": dataset_config,
+                        "split_dict": split_dict,
+                        "dataset_key": split_name,
+                        "seed": seed,
+                    }
+                )
+
+        super().__init__(
+            seed=seed,
+            train_dataset={
+                "_target_": "torch.utils.data.ConcatDataset",
+                "datasets": split_datasets["train"],
+            },
+            val_dataset={
+                "_target_": "torch.utils.data.ConcatDataset",
+                "datasets": split_datasets["val"],
+            },
+            test_dataset={
+                "_target_": "torch.utils.data.ConcatDataset",
+                "datasets": split_datasets["test"],
+            },
+            **kwargs,
+        )
+
+    @staticmethod
+    def _resolve_split(
+        file_path: str,
+        train_val_test_split: Sequence[Union[int, float, None]],
+    ):
+        if all(isinstance(value, float) for value in train_val_test_split):
+            return {
+                "train": train_val_test_split[0],
+                "val": train_val_test_split[1],
+                "test": train_val_test_split[2],
+            }
+
+        with np.load(file_path, mmap_mode="r") as npz_data:
+            num_frames = npz_data["energies"].shape[0]
+        train, val, test = train_val_test_split
+        if test is None or int(test) < 0:
+            test = num_frames - int(train) - int(val)
+        split = {"train": int(train), "val": int(val), "test": int(test)}
+        assert sum(split.values()) == num_frames, (
+            f"Integer split {split} does not sum to {num_frames} frames in {file_path}"
+        )
+        return split

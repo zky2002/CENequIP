@@ -4,7 +4,7 @@ from ._ase_datamodule import ASEDataModule
 from .sgdml_datamodule import sGDML_CCSD_DataModule
 from ._3bpa_datamodule import NequIP3BPADataModule
 from .tm23_datamodule import TM23DataModule
-from .rmd17_datamodule import rMD17DataModule
+from .rmd17_datamodule import rMD17AllDataModule, rMD17DataModule
 from .md22_datamodule import MD22DataModule
 from .samd23_datamodule import SAMD23DataModule
 from .water_datamodule import WaterDataModule
@@ -15,6 +15,7 @@ __all__ = [
     "ASEDataModule",
     "sGDML_CCSD_DataModule",
     "rMD17DataModule",
+    "rMD17AllDataModule",
     "MD22DataModule",
     "NequIP3BPADataModule",
     "TM23DataModule",
